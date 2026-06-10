@@ -33,6 +33,14 @@ class UtilizationAnalyzer {
   // working_seconds / window_seconds, in [0, 1]; 0 when the window is empty.
   double utilization_rate(const std::vector<Sample>& samples) const;
 
+  // Utilization over an explicit observation window [window_start, window_end):
+  // the working time that falls inside the window, divided by the window length
+  // (window_end - window_start). Working intervals are clamped to the window
+  // before summing. Returns 0.0 when the window is empty (window_end <=
+  // window_start).
+  double utilization_rate(const std::vector<Sample>& samples,
+                          long long window_start, long long window_end) const;
+
  private:
   Mode mode_;
 };

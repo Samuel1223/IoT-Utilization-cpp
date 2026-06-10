@@ -36,4 +36,9 @@ double UtilizationAnalyzer::utilization_rate(
   not_implemented();
 }
 
+double UtilizationAnalyzer::utilization_rate(const std::vector<Sample>&,
+                                             long long, long long) const {
+  not_implemented();
+}
+
 }  // namespace iot
