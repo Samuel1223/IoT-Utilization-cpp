@@ -1,6 +1,7 @@
 #include "iot/utilization.hpp"
 
 #include <stdexcept>
+#include <utility>
 
 #include "iot/intervals.hpp"
 
@@ -12,7 +13,9 @@ namespace {
 }
 }  // namespace
 
-UtilizationAnalyzer::UtilizationAnalyzer(Mode mode) : mode_(mode) {}
+UtilizationAnalyzer::UtilizationAnalyzer(Mode mode,
+                                         WorkingPredicate speed_predicate)
+    : mode_(mode), speed_predicate_(std::move(speed_predicate)) {}
 
 Mode UtilizationAnalyzer::mode() const { return mode_; }
 
