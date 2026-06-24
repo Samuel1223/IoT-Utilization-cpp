@@ -14,8 +14,11 @@ namespace {
 }  // namespace
 
 UtilizationAnalyzer::UtilizationAnalyzer(Mode mode,
-                                         WorkingPredicate speed_predicate)
-    : mode_(mode), speed_predicate_(std::move(speed_predicate)) {}
+                                         WorkingPredicate speed_predicate,
+                                         long long min_working_seconds)
+    : mode_(mode),
+      speed_predicate_(std::move(speed_predicate)),
+      min_working_seconds_(min_working_seconds) {}
 
 Mode UtilizationAnalyzer::mode() const { return mode_; }
 

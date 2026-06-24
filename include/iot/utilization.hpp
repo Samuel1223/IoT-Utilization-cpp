@@ -30,8 +30,14 @@ class UtilizationAnalyzer {
  public:
   // In Speed mode, `speed_predicate` decides whether each segment counts as
   // working; it defaults to `both_ends_nonzero`. Position mode ignores it.
+  //
+  // `min_working_seconds` is a debounce threshold: an individual working
+  // segment counts only when its own duration is at least this many seconds;
+  // shorter segments are discarded *before* intervals are merged. 0 disables
+  // the filter. A negative value is rejected when the history is analyzed.
   explicit UtilizationAnalyzer(
-      Mode mode, WorkingPredicate speed_predicate = both_ends_nonzero);
+      Mode mode, WorkingPredicate speed_predicate = both_ends_nonzero,
+      long long min_working_seconds = 0);
 
   Mode mode() const;
 
@@ -58,6 +64,7 @@ class UtilizationAnalyzer {
  private:
   Mode mode_;
   WorkingPredicate speed_predicate_;
+  long long min_working_seconds_;
 };
 
 }  // namespace iot
