@@ -8,12 +8,12 @@ namespace iot {
 
 namespace {
 
-struct Point {
+struct Coord {
   double t;
   double v;
 };
 
-double squared_distance(const Point& a, const Point& b) {
+double squared_distance(const Coord& a, const Coord& b) {
   const double dt = a.t - b.t;
   const double dv = a.v - b.v;
   return dt * dt + dv * dv;
@@ -46,7 +46,7 @@ std::vector<int> kmeans_cluster(const std::vector<Sample>& samples, int k,
     v_max = std::max(v_max, s.value);
   }
 
-  std::vector<Point> points(n);
+  std::vector<Coord> points(n);
   for (std::size_t i = 0; i < n; ++i) {
     points[i].t =
         t_max > t_min ? static_cast<double>(samples[i].timestamp - t_min) /
@@ -70,7 +70,7 @@ std::vector<int> kmeans_cluster(const std::vector<Sample>& samples, int k,
     return a < b;
   });
 
-  std::vector<Point> centroids(static_cast<std::size_t>(k));
+  std::vector<Coord> centroids(static_cast<std::size_t>(k));
   for (int j = 0; j < k; ++j) {
     const std::size_t pos = (static_cast<std::size_t>(j) * n) /
                             static_cast<std::size_t>(k);

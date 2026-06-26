@@ -1,6 +1,9 @@
 #ifndef IOT_CLUSTERING_HPP
 #define IOT_CLUSTERING_HPP
 
+#include <array>
+#include <cstddef>
+#include <functional>
 #include <vector>
 
 #include "iot/sample.hpp"
@@ -39,8 +42,42 @@ struct Reading3D {
   double value2;  // NaN if missing
 };
 
+// A normalized 3-D coordinate (timestamp, value, value2), each in [0, 1].
+using Point = std::array<double, 3>;
+
+// Strategy callbacks the caller may override to customize how clustering works.
+//   * Distance: how far a point is from a centroid (smaller = closer).
+//   * Centroid: how a cluster's members are aggregated into a new centroid.
+using DistanceFn = std::function<double(const Point& point, const Point& centroid)>;
+using CentroidFn = std::function<Point(const std::vector<Point>& members)>;
+
+// Default distance: squared Euclidean (sum of squared per-axis differences).
+inline double squared_euclidean(const Point& point, const Point& centroid) {
+  double total = 0.0;
+  for (std::size_t d = 0; d < 3; ++d) {
+    const double diff = point[d] - centroid[d];
+    total += diff * diff;
+  }
+  return total;
+}
+
+// Default centroid: the per-axis arithmetic mean of the members (a {0,0,0}
+// centroid for an empty member list).
+inline Point arithmetic_mean(const std::vector<Point>& members) {
+  Point centroid{{0.0, 0.0, 0.0}};
+  if (members.empty()) return centroid;
+  for (const auto& m : members) {
+    for (std::size_t d = 0; d < 3; ++d) centroid[d] += m[d];
+  }
+  for (std::size_t d = 0; d < 3; ++d) {
+    centroid[d] /= static_cast<double>(members.size());
+  }
+  return centroid;
+}
+
 // Deterministic 3-D k-means (Lloyd's algorithm) over Reading3D points
-// (timestamp, value, value2), with mean-imputation of missing features.
+// (timestamp, value, value2), with mean-imputation of missing features and a
+// CALLER-SUPPLIED clustering strategy (distance + centroid aggregation).
 //
 // The procedure is fully deterministic (no randomness):
 //   * Impute (BEFORE normalizing): for each axis, replace every missing (NaN)
@@ -48,22 +85,25 @@ struct Reading3D {
 //     present values at all, its missing entries become 0. (timestamp is never
 //     missing.)
 //   * Normalize: per axis, x' = (x - min) / (max - min) over the imputed values,
-//     or 0 if max == min. Distance is squared Euclidean in the 3-D normalized
-//     space.
+//     or 0 if max == min, producing each reading's Point in [0,1]^3.
 //   * Initialize: order the readings by (timestamp, then imputed value, then
 //     imputed value2, then input index); centroid j (0-based) starts at the
 //     normalized point at ordered position (j * n) / k (integer division).
-//   * Assign: nearest centroid by squared Euclidean distance; ties go to the
-//     lowest cluster index.
-//   * Update: each centroid becomes the mean of its assigned points (one
-//     snapshot); an empty cluster keeps its centroid.
+//   * Assign: each point goes to the centroid with the smallest `distance`;
+//     ties go to the lowest cluster index.
+//   * Update: each non-empty cluster's centroid becomes `recompute(members)`
+//     over its currently-assigned points (one snapshot); an empty cluster keeps
+//     its centroid (recompute is not called for it).
 //   * Stop: when an assignment repeats the previous one, or after
 //     `max_iterations` assignment steps.
 //
-// Returns the cluster index in [0, k) for every reading, in input order.
-// Throws std::invalid_argument if k <= 0, max_iterations <= 0, or k exceeds the
-// number of readings.
+// `distance` defaults to squared_euclidean and `recompute` to arithmetic_mean,
+// which together give classic k-means. Returns the cluster index in [0, k) for
+// every reading, in input order. Throws std::invalid_argument if k <= 0,
+// max_iterations <= 0, or k exceeds the number of readings.
 std::vector<int> kmeans_cluster_3d(const std::vector<Reading3D>& readings, int k,
+                                   DistanceFn distance = squared_euclidean,
+                                   CentroidFn recompute = arithmetic_mean,
                                    int max_iterations = 100);
 
 }  // namespace iot
