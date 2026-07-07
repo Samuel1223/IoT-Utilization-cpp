@@ -24,22 +24,23 @@ namespace iot {
 //   * Assign: each point goes to the nearest centroid by squared Euclidean
 //     distance; ties go to the lowest cluster index.
 //   * Update: each centroid becomes the mean of the points currently assigned
-//     to it (from one assignment snapshot); an empty cluster keeps its centroid.
+//     to it (from one assignment snapshot); an empty cluster keeps its
+//     centroid.
 //   * Stop: when an assignment repeats the previous iteration's assignment, or
 //     after `max_iterations` assignment steps.
 //
 // Returns the cluster index in [0, k) for every sample, in input order.
 // Throws std::invalid_argument if k <= 0, max_iterations <= 0, or k exceeds the
 // number of samples.
-std::vector<int> kmeans_cluster(const std::vector<Sample>& samples, int k,
+std::vector<int> kmeans_cluster(const std::vector<Sample> &samples, int k,
                                 int max_iterations = 100);
 
 // A 3-feature IoT reading: a timestamp plus two sensor channels. `timestamp` is
 // always present; either `value` or `value2` may be MISSING, encoded as NaN.
 struct Reading3D {
   long long timestamp;
-  double value;   // NaN if missing
-  double value2;  // NaN if missing
+  double value;  // NaN if missing
+  double value2; // NaN if missing
 };
 
 // A normalized 3-D coordinate (timestamp, value, value2), each in [0, 1].
@@ -48,11 +49,12 @@ using Point = std::array<double, 3>;
 // Strategy callbacks the caller may override to customize how clustering works.
 //   * Distance: how far a point is from a centroid (smaller = closer).
 //   * Centroid: how a cluster's members are aggregated into a new centroid.
-using DistanceFn = std::function<double(const Point& point, const Point& centroid)>;
-using CentroidFn = std::function<Point(const std::vector<Point>& members)>;
+using DistanceFn =
+    std::function<double(const Point &point, const Point &centroid)>;
+using CentroidFn = std::function<Point(const std::vector<Point> &members)>;
 
 // Default distance: squared Euclidean (sum of squared per-axis differences).
-inline double squared_euclidean(const Point& point, const Point& centroid) {
+inline double squared_euclidean(const Point &point, const Point &centroid) {
   double total = 0.0;
   for (std::size_t d = 0; d < 3; ++d) {
     const double diff = point[d] - centroid[d];
@@ -63,11 +65,13 @@ inline double squared_euclidean(const Point& point, const Point& centroid) {
 
 // Default centroid: the per-axis arithmetic mean of the members (a {0,0,0}
 // centroid for an empty member list).
-inline Point arithmetic_mean(const std::vector<Point>& members) {
+inline Point arithmetic_mean(const std::vector<Point> &members) {
   Point centroid{{0.0, 0.0, 0.0}};
-  if (members.empty()) return centroid;
-  for (const auto& m : members) {
-    for (std::size_t d = 0; d < 3; ++d) centroid[d] += m[d];
+  if (members.empty())
+    return centroid;
+  for (const auto &m : members) {
+    for (std::size_t d = 0; d < 3; ++d)
+      centroid[d] += m[d];
   }
   for (std::size_t d = 0; d < 3; ++d) {
     centroid[d] /= static_cast<double>(members.size());
@@ -84,7 +88,8 @@ inline Point arithmetic_mean(const std::vector<Point>& members) {
 //     entry with the mean of that axis's PRESENT values. If an axis has no
 //     present values at all, its missing entries become 0. (timestamp is never
 //     missing.)
-//   * Normalize: per axis, x' = (x - min) / (max - min) over the imputed values,
+//   * Normalize: per axis, x' = (x - min) / (max - min) over the imputed
+//   values,
 //     or 0 if max == min, producing each reading's Point in [0,1]^3.
 //   * Initialize: order the readings by (timestamp, then imputed value, then
 //     imputed value2, then input index); centroid j (0-based) starts at the
@@ -101,11 +106,57 @@ inline Point arithmetic_mean(const std::vector<Point>& members) {
 // which together give classic k-means. Returns the cluster index in [0, k) for
 // every reading, in input order. Throws std::invalid_argument if k <= 0,
 // max_iterations <= 0, or k exceeds the number of readings.
-std::vector<int> kmeans_cluster_3d(const std::vector<Reading3D>& readings, int k,
+std::vector<int> kmeans_cluster_3d(const std::vector<Reading3D> &readings,
+                                   int k,
                                    DistanceFn distance = squared_euclidean,
                                    CentroidFn recompute = arithmetic_mean,
                                    int max_iterations = 100);
 
-}  // namespace iot
+// Predictive maintenance analysis for time series clusters. Analyzes each
+// cluster for diagonal trends (linear relationship between time and sensor
+// values) and slow degradation patterns that indicate maintenance needs.
+//
+// For each cluster, computes:
+//   - time_value_correlation: Pearson correlation between timestamp and value
+//     (-1 to 1, where -1 is strong decreasing trend, 1 is strong increasing)
+//   - time_value2_correlation: Pearson correlation between timestamp and value2
+//   - avg_value, avg_value2: Mean of non-NaN values in the cluster
+//   - diagonal_score: A score from 0.0 to 1.0 indicating the strength of the
+//     diagonal trend in 3D space (0 = no trend, 1 = strong linear trend)
+//   - maintenance_urgency: A score from 0.0 to 1.0 where higher values indicate
+//     more urgent maintenance need, based on decreasing trends and low
+//     averages. A cluster with strong negative correlations and low average
+//     values has high urgency (near 1.0). A healthy cluster with stable or
+//     increasing values has low urgency (near 0.0).
+//
+// The diagonal_score is computed as the average of the absolute correlations,
+// weighted by the number of valid (non-NaN) entries in each channel. The
+// maintenance_urgency is computed as:
+//   urgency = 0.5 * (1.0 - (avg_value_norm + avg_value2_norm) / 2.0) +
+//             0.5 * (max(0.0, -time_value_correlation) + max(0.0,
+//             -time_value2_correlation)) / 2.0
+// where avg_value_norm and avg_value2_norm are the cluster averages normalized
+// to [0,1] using the global min/max across all readings (after imputation).
+// NaN values are ignored in correlation and average calculations. If a cluster
+// has fewer than 2 valid entries for a channel, that channel's correlation is
+// 0. If a cluster is empty, all values are 0.
+//
+// Returns a vector of ClusterTrend, one per cluster, in order from 0 to k-1.
+// Throws std::invalid_argument if k <= 0, k exceeds the number of readings,
+// or assignments size does not match readings size.
+struct ClusterTrend {
+  double time_value_correlation;  // Pearson correlation, -1 to 1
+  double time_value2_correlation; // Pearson correlation, -1 to 1
+  double avg_value;               // Mean of non-NaN values
+  double avg_value2;              // Mean of non-NaN value2
+  double diagonal_score;          // 0.0 to 1.0, strength of diagonal trend
+  double maintenance_urgency;     // 0.0 to 1.0, higher = more urgent
+};
 
-#endif  // IOT_CLUSTERING_HPP
+std::vector<ClusterTrend>
+calculate_cluster_trends(const std::vector<Reading3D> &readings,
+                         const std::vector<int> &assignments, int k);
+
+} // namespace iot
+
+#endif // IOT_CLUSTERING_HPP
